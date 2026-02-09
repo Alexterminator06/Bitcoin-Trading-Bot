@@ -42,36 +42,83 @@ with tab_config:
 
 # --- SIMULATION ---
 with tab_simu:
-    st.header("Simulation Sniper Mode")
-    st.info("💡 Conseil : Pour un Win Rate élevé, testez en 1h ou 4h sur 30 jours.")
+    st.header("Simulation Réelle (Objectif 5 Jours / 1H)")
+    st.warning("⚠️ Mode Sniper : Analyse sur 120 bougies horaires.")
     
+    # On fixe les paramètres pour correspondre à ton objectif réel
     symbol = st.selectbox("Actif", ["BTC-USD", "ETH-USD", "NVDA"], index=0)
-    timeframe = st.selectbox("Unité de temps", ["1h", "4h", "1d"], index=0)
-    days = st.slider("Jours de simulation", 10, 60, 45)
+    days = 5  # Fixé à 5 jours
+    timeframe = "1h" # Fixé à 1h
     
     if st.button("Lancer la Simulation"):
         try:
-            hist = yf.download(symbol, period=f"{days}d", interval=timeframe)
-            if not hist.empty:
-                if isinstance(hist.columns, pd.MultiIndex): hist.columns = hist.columns.get_level_values(0)
+            with st.spinner("Analyse en cours..."):
+                # 1. On télécharge PLUS de jours (ex: 20j) pour que les indicateurs (EMA/ADX) soient prêts
+                # même si on ne veut regarder que les 5 derniers jours.
+                lookback = days + 10 
+                hist = yf.download(symbol, period=f"{lookback}d", interval=timeframe)
                 
-                eng = TradingEngine(symbol)
-                stats, bt = eng.run_backtest(hist)
-    
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Rendement Global", f"{stats['Return [%]']:.2f}%")
-                c2.metric("Win Rate", f"{stats['Win Rate [%]']:.1f}%")
-                c3.metric("Max Drawdown", f"{stats['Max. Drawdown [%]']:.1f}%")
+                if not hist.empty:
+                    # 2. Nettoyage STRICT du MultiIndex de Yahoo Finance
+                    if isinstance(hist.columns, pd.MultiIndex):
+                        hist.columns = hist.columns.get_level_values(0)
+                    
+                    # On s'assure que les colonnes sont bien nommées pour Backtesting.py
+                    hist = hist[['Open', 'High', 'Low', 'Close', 'Volume']]
+                    hist = hist.dropna()
 
-                # Nouveau : Afficher la répartition Long vs Short
-                trades = stats['_trades']
-                if not trades.empty:
-                    longs = trades[trades['Size'] > 0]
-                    shorts = trades[trades['Size'] < 0]
-                    st.write(f"📈 Nombre de Longs : {len(longs)} | 📉 Nombre de Shorts : {len(shorts)}")
-                
-                st.line_chart(stats['_equity_curve']['Equity'])
-            else:
-                st.error("Données introuvables sur Yahoo Finance.")
+                    # 3. Exécution
+                    eng = TradingEngine(symbol)
+                    stats, bt = eng.run_backtest(hist)
+                    
+                    # Vérification : si stats['# Trades'] est 0, c'est un problème de données
+                    if stats['# Trades'] == 0:
+                        st.warning("⚠️ Aucun trade détecté. Essayez d'augmenter la période ou de vérifier l'actif.")
+                    
+                    # ... (Affichage des metrics et du tableau des trades)
+                    
+                    # 1. RÉSUMÉ DES PERFORMANCES
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Rendement Net", f"{stats['Return [%]']:.2f}%")
+                    c2.metric("Win Rate", f"{stats['Win Rate [%]']:.1f}%")
+                    c3.metric("Profit Factor", f"{stats['Profit Factor']:.2f}")
+                    c4.metric("Nombre de Trades", int(stats['# Trades']))
+
+                    # 2. GRAPHIQUE D'ÉQUITÉ
+                    st.subheader("📈 Évolution du Capital")
+                    st.line_chart(stats['_equity_curve']['Equity'])
+
+                    # 3. DÉTAIL DES TRADES (LA NOUVEAUTÉ)
+                    st.subheader("📜 Journal des Transactions")
+                    trades = stats['_trades']
+
+                    if not trades.empty:
+                        df_trades = trades.copy()
+                        
+                        df_trades['PnL Net ($)'] = df_trades['PnL'].round(2)
+                        df_trades['Retour (%)'] = (df_trades['ReturnPct'] * 100).round(2)
+                        df_trades['Type'] = df_trades['Size'].apply(lambda x: "🟢 LONG" if x > 0 else "🔴 SHORT")
+
+                        # Sélection et réorganisation des colonnes
+                        cols = ['Type', 'EntryPrice', 'ExitPrice', 'PnL Net ($)', 'Retour (%)']
+                        df_trades = df_trades[cols]
+
+                        # Fonction de coloration mise à jour pour Pandas 2.x
+                        def highlight_pnl(val):
+                            try:
+                                num = float(val)
+                                color = 'green' if num > 0 else 'red'
+                                return f'color: {color}'
+                            except:
+                                return None
+
+                        # Utilisation de .map() au lieu de .applymap()
+                        st.dataframe(
+                            df_trades.style.map(highlight_pnl, subset=['PnL Net ($)', 'Retour (%)']),
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("Aucun trade n'a été ouvert sur cette période avec les paramètres actuels.")
+
         except Exception as e:
-            st.error(f"Erreur : {e}")
+            st.error(f"Erreur d'affichage : {e}")
