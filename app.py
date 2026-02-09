@@ -1,44 +1,148 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
-from broker import AlpacaBroker
+import pandas as pd
 from engine import TradingEngine
+import os
+import sys
+import subprocess
+import time
+from dotenv import load_dotenv
+import alpaca_trade_api as tradeapi
 
-st.set_page_config(page_title="Gemini Bot Pro", layout="wide")
+# --- CONFIGURATION INITIALE ---
+st.set_page_config(page_title="Crypto Bot Dashboard", layout="wide")
+load_dotenv()
 
-# Initialisation Session State pour éviter les crashs au démarrage
-if "selected_symbol" not in st.session_state:
-    st.session_state.selected_symbol = "BTC-USD"
-if "bot_active" not in st.session_state:
-    st.session_state.bot_active = False
+st.title("🤖 Bitcoin Trading Bot - Centre de Contrôle")
 
-broker = AlpacaBroker()
+# --- GESTION DE L'ÉTAT DU BOT (MÉMOIRE) ---
+# On utilise session_state pour se souvenir si le bot tourne ou pas
+if 'bot_process' not in st.session_state:
+    st.session_state.bot_process = None
 
-tab_dashboard, tab_config, tab_simu = st.tabs(["📊 Dashboard", "⚙️ Paramètres", "🧪 Simulation"])
+# Fonction pour vérifier si le processus est toujours vivant
+def is_bot_running():
+    if st.session_state.bot_process is None:
+        return False
+    if st.session_state.bot_process.poll() is not None:
+        # Le processus s'est terminé tout seul (erreur ou fin)
+        st.session_state.bot_process = None
+        return False
+    return True
 
-# --- DASHBOARD ---
-with tab_dashboard:
-    st.header("État du Portefeuille")
-    try:
-        acc = broker.get_account_info()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Equity", f"{acc['equity']}$")
-        c2.metric("Cash", f"{acc['cash']}$")
-        c3.metric("PnL", f"{acc['pnl']}$")
-    except:
-        st.warning("En attente de connexion Alpaca (Vérifiez votre .env)")
+# --- CONNEXION ALPACA (Pour l'affichage) ---
+api_key = os.getenv("ALPACA_API_KEY")
+secret_key = os.getenv("ALPACA_SECRET_KEY")
+base_url = os.getenv("ALPACA_BASE_URL")
 
-# --- PARAMÈTRES ---
-with tab_config:
-    st.header("Configuration Live")
-    st.session_state.selected_symbol = st.selectbox("Actif", ["BTC-USD", "ETH-USD", "SOL-USD", "AAPL", "NVDA"])
-    if st.button("ALLUMER / ÉTEINDRE LE BOT"):
-        st.session_state.bot_active = not st.session_state.bot_active
-        st.rerun()
+connected = False
+account = None
+try:
+    if api_key:
+        api = tradeapi.REST(api_key, secret_key, base_url, api_version='v2')
+        account = api.get_account()
+        connected = True
+except:
+    pass
+
+# --- TABS ---
+tab_live, tab_simu = st.tabs(["🔴 PILOTAGE LIVE", "⚡ Simulation"])
+
+# ==========================================
+# ONGLET 1 : PILOTAGE LIVE (START/STOP)
+# ==========================================
+with tab_live:
+    st.markdown("### 🕹️ Commandes du Bot")
     
-    color = "green" if st.session_state.bot_active else "red"
-    st.markdown(f"Statut du Bot : :{color}[{'OPÉRATIONNEL' if st.session_state.bot_active else 'À L ARRÊT'}]")
+    # --- SÉLECTION DE L'ACTIF ---
+    # On définit la liste des actifs tradables
+    # Note : Alpaca Paper supporte bien les cryptos majeures et les actions US
+    choix_symbol = st.selectbox(
+        "Sur quel actif le bot doit-il travailler ?",
+        ["BTC/USD", "ETH/USD", "LTC/USD", "BCH/USD", "NVDA", "TSLA", "AAPL"],
+        index=0, # Par défaut BTC/USD
+        disabled=is_bot_running() # On ne peut pas changer si le bot tourne déjà !
+    )
+    
+    st.divider()
+
+    col_state, col_btn_start, col_btn_stop = st.columns([2, 1, 1])
+    
+    # 1. Indicateur d'état
+    with col_state:
+        if is_bot_running():
+            st.success(f"✅ STATUT : BOT EN LIGNE sur {st.session_state.get('active_symbol', 'Inconnu')}")
+            st.caption(f"Process ID : {st.session_state.bot_process.pid}")
+        else:
+            st.error("🛑 STATUT : BOT ARRÊTÉ (Offline)")
+    
+    # 2. Bouton Démarrer
+    with col_btn_start:
+        if st.button("▶️ DÉMARRER LE BOT", disabled=is_bot_running(), use_container_width=True):
+            try:
+                # C'EST ICI QUE LA MAGIE OPÈRE :
+                # On lance : python live_bot.py --symbol CHOIX_UTILISATEUR
+                #cmd = [sys.executable, "live_bot.py", "--symbol", choix_symbol]
+                cmd = [sys.executable, "signal_bot.py", "--symbol", choix_symbol]                
+                process = subprocess.Popen(cmd)
+                
+                st.session_state.bot_process = process
+                st.session_state.active_symbol = choix_symbol # On mémorise l'actif en cours
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erreur au démarrage : {e}")
+
+    # 3. Bouton Arrêter
+    with col_btn_stop:
+        if st.button("⏹️ ARRÊTER LE BOT", disabled=not is_bot_running(), use_container_width=True):
+            try:
+                st.session_state.bot_process.terminate()
+                st.session_state.bot_process = None
+                if 'active_symbol' in st.session_state:
+                    del st.session_state.active_symbol
+                st.warning("Bot arrêté avec succès.")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erreur à l'arrêt : {e}")
+
+    st.divider()
+
+    # --- ZONE DE SURVEILLANCE COMPTE (Reste inchangée) ---
+    st.header("📊 Suivi du Compte Alpaca")
+    
+    if connected:
+        c1, c2, c3, c4 = st.columns(4)
+        equity = float(account.equity)
+        last_equity = float(account.last_equity)
+        change = equity - last_equity
+        
+        c1.metric("Valeur Portefeuille", f"{equity:.2f} $", f"{change:.2f} $")
+        c2.metric("Cash", f"{float(account.cash):.2f} $")
+        c3.metric("Buying Power", f"{float(account.buying_power):.2f} $")
+        c4.metric("Mode", "PAPER TRADING")
+        
+        st.subheader("Positions Actuelles")
+        try:
+            positions = api.list_positions()
+            if positions:
+                pos_data = []
+                for p in positions:
+                    pos_data.append({
+                        "Symbole": p.symbol,
+                        "Qty": p.qty,
+                        "Prix Entrée": round(float(p.avg_entry_price), 2),
+                        "Prix Actuel": round(float(p.current_price), 2),
+                        "P/L ($)": round(float(p.unrealized_pl), 2),
+                        "% Gain": f"{float(p.unrealized_plpc)*100:.2f}%"
+                    })
+                st.dataframe(pd.DataFrame(pos_data), use_container_width=True)
+            else:
+                st.info("Aucune position ouverte actuellement.")
+        except Exception as e:
+            st.error(f"Erreur lecture positions : {e}")
+    else:
+        st.warning("⚠️ Alpaca non connecté. Vérifiez le fichier .env")
 
 # --- SIMULATION ---
 with tab_simu:
