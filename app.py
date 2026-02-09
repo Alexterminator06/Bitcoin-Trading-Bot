@@ -46,7 +46,7 @@ with tab_simu:
     st.warning("⚠️ Mode Sniper : Analyse sur 120 bougies horaires.")
     
     # On fixe les paramètres pour correspondre à ton objectif réel
-    symbol = st.selectbox("Actif", ["BTC-USD", "ETH-USD", "NVDA"], index=0)
+    symbol = st.selectbox("Actif", ["BTC-USD", "ETH-USD", "NVDA", "AAPL"], index=0)
     days = 5  # Fixé à 5 jours
     timeframe = "1h" # Fixé à 1h
     
