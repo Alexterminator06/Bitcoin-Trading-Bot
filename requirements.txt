@@ -7,3 +7,4 @@ backtesting
 matplotlib
 pyarrow
 python-dotenv
+ccxt
