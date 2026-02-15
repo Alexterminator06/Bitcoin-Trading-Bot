@@ -1,4 +1,5 @@
 streamlit
+urllib3>=1.26.16
 pandas
 pandas-ta
 yfinance
