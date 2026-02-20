@@ -218,7 +218,7 @@ with tab_simu:
                                 return None
 
                         st.dataframe(
-                            df_trades.style.map(highlight_pnl, subset=['PnL($)', 'Return (%)']),
+                            df_trades.style.map(highlight_pnl, subset=['PnL ($)', 'Return (%)']),
                             use_container_width=True
                         )
                     else:
