@@ -189,24 +189,24 @@ with tab_simu:
                         st.warning("⚠️ Aucun trade détecté.")
                     
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Rendement Net", f"{stats['Return [%]']:.2f}%")
+                    c1.metric("Net Return", f"{stats['Return [%]']:.2f}%")
                     c2.metric("Win Rate", f"{stats['Win Rate [%]']:.1f}%")
                     c3.metric("Profit Factor", f"{stats['Profit Factor']:.2f}")
-                    c4.metric("Nombre de Trades", int(stats['# Trades']))
+                    c4.metric("Number of Trades", int(stats['# Trades']))
 
-                    st.subheader("📈 Évolution du Capital")
+                    st.subheader("Capital Evolution")
                     st.line_chart(stats['_equity_curve']['Equity'])
 
-                    st.subheader("📜 Journal des Transactions")
+                    st.subheader("Transaction Report")
                     trades = stats['_trades']
 
                     if not trades.empty:
                         df_trades = trades.copy()
-                        df_trades['PnL Net ($)'] = df_trades['PnL'].round(2)
-                        df_trades['Retour (%)'] = (df_trades['ReturnPct'] * 100).round(2)
+                        df_trades['PnL ($)'] = df_trades['PnL'].round(2)
+                        df_trades['Return (%)'] = (df_trades['ReturnPct'] * 100).round(2)
                         df_trades['Type'] = df_trades['Size'].apply(lambda x: "🟢 LONG" if x > 0 else "🔴 SHORT")
 
-                        cols = ['Type', 'EntryPrice', 'ExitPrice', 'PnL Net ($)', 'Retour (%)']
+                        cols = ['Type', 'EntryPrice', 'ExitPrice', 'PnL ($)', 'Return (%)']
                         df_trades = df_trades[cols]
 
                         def highlight_pnl(val):
@@ -218,7 +218,7 @@ with tab_simu:
                                 return None
 
                         st.dataframe(
-                            df_trades.style.map(highlight_pnl, subset=['PnL Net ($)', 'Retour (%)']),
+                            df_trades.style.map(highlight_pnl, subset=['PnL($)', 'Return (%)']),
                             use_container_width=True
                         )
                     else:
